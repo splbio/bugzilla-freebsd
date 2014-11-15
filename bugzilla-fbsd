@@ -3,9 +3,10 @@
 import subprocess
 import sys
 import requests
-from subprocess import check_call
+from subprocess import check_call, check_output
 import argparse
 import re
+import os
 
 
 BUGZILLA_CMD=["/usr/local/bin/bugzilla", "--bugzilla", "https://bugs.freebsd.org/bugzilla/xmlrpc.cgi" ]
@@ -20,6 +21,52 @@ BUGZILLA_CMD.append("--nosslverify")
 
 
 """
+
+import tempfile
+import shutil
+def upload_shar_from_fabid(fabid, portpath, bugid):
+
+    (portdir, portname) = portpath.split('/')
+    tmpdir = None
+    patchnam = None
+    
+    r = requests.get('https://reviews.freebsd.org/' + fabid + '?download=true')
+    (patchfd, patchnam) = tempfile.mkstemp()
+    try:
+	#patchnam = patchfd.name
+	patchfilehandle = open(patchnam, "w")
+	patchfilehandle.write(r.text)
+	patchfilehandle.flush()
+
+	tmpdir = tempfile.mkdtemp()
+	portsdir = tmpdir + '/ports'
+	os.mkdir(portsdir)
+	args = [ "patch", "-d", portsdir, "-p0", "-i", patchnam ]
+	check_call(args)
+	#shar `find oneko` > oneko.shar
+	sharoutput = tmpdir + '/' + portname + '.shar'
+	cmd = "cd '%s' && shar `find '%s'` > '%s'" % (
+	    portsdir + '/' + portdir,
+	    portname,
+	    sharoutput)
+	print "Executing: %s" % (cmd)
+	check_call(cmd, shell=True)
+	print sharoutput
+	ADD_FILE_OPTS = [
+		"attach",
+		"--file", sharoutput,
+		"--desc", os.path.basename(sharoutput),
+		bugid,
+		]
+	check_call(BUGZILLA_CMD + ADD_FILE_OPTS)
+    finally:
+	if patchnam is not None:
+	    os.remove(patchnam)
+	if tmpdir is not None:
+	    shutil.rmtree(tmpdir)
+
+
+
 
 def new_port():
     parser = argparse.ArgumentParser(description='Process some integers.')
@@ -43,11 +90,14 @@ def new_port():
     ADD_OPTS= [
 	    "-s", "new port: %s" % args.name,
 	    "-l", "new port for %s is available in phabricator at %s" % (args.name, faburl),
-	    "--url", faburl
+	    "--url", faburl,
+	    "--oneline",
 	    ]
     # --online <- gives back bugid for further processing...
     print BUGZILLA_CMD + ADD_OPTS
-    check_call(BUGZILLA_CMD + NEW_PORT_OPTS + ADD_OPTS)
+    output = check_output(BUGZILLA_CMD + NEW_PORT_OPTS + ADD_OPTS)
+    bugid = output.split()[0]
+    upload_shar_from_fabid(fabid = args.fabid, portpath = args.name, bugid = bugid)
 
 PROGNAME="bugzilla-fbsd"
 if len(sys.argv) < 2:
@@ -60,3 +110,5 @@ if op == "login":
     check_call(BUGZILLA_CMD + [ "login" ])
 elif op == "newport":
     new_port()
+else:
+    print "unrecognized verb: '%s', options are: login, newport" % (op)
