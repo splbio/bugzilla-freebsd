@@ -109,22 +109,7 @@ def check_fabid(fabid):
 """
 Create a new bugzilla for a port based on either a patchfile or a phabric id.
 """
-def new_port():
-    parser = argparse.ArgumentParser(description='Upload a new port based on fabricator diff or patchfile.')
-    parser.add_argument('--name', required=True, help='name of port')
-    parser.add_argument('--patch-strip-count', default=None, help='Strip this many components off when peeling apart patch.  git users should use 1')
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--fabid', default=None, help='fabricator id')
-    group.add_argument('--patchfile', default=None, help='path to patchfile')
-    args = parser.parse_args()
-
-    if args.fabid is None and args.patchfile is None:
-	print "You must give either --fabid or --patchfile argument"
-	sys.exit(1)
-    elif args.fabid is not None and args.patchfile is not None:
-	print "You can't give both --fabid and --patchfile argument"
-	sys.exit(1)
-
+def bz_newport(args):
     if args.fabid:
 	fabid = args.fabid
 	check_fabid(fabid)
@@ -147,16 +132,27 @@ def new_port():
 
     print "New bug created at: https://bugs.freebsd.org/%d" % (bugid)
 
-PROGNAME="bugzilla-fbsd"
-if len(sys.argv) < 2:
-    print "Usage: " + PROGNAME + " <login|newport> [options...]"
-    sys.exit(1)
-
-op = sys.argv.pop(1)
-
-if op == "login":
+def bz_login(args):
     check_call(BUGZILLA_CMD + [ "login" ])
-elif op == "newport":
-    new_port()
-else:
-    print "unrecognized verb: '%s', options are: login, newport" % (op)
+
+def main():
+    PROGNAME="bugzilla-fbsd"
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+    """Login takes no args, just a verb."""
+    parser_login = subparsers.add_parser('login')
+    parser_login.set_defaults(func=bz_login)
+
+    """Create a new port args."""
+    parser_newport = subparsers.add_parser('newport', description='Upload a new port based on fabricator diff or patchfile.')
+    parser_newport.add_argument('--name', required=True, help='name of port')
+    parser_newport.add_argument('--patch-strip-count', default=None, help='Strip this many components off when peeling apart patch.  git users should use 1')
+    group = parser_newport.add_mutually_exclusive_group(required=True)
+    group.add_argument('--fabid', default=None, help='fabricator id')
+    group.add_argument('--patchfile', default=None, help='path to patchfile')
+    parser_newport.set_defaults(func=bz_newport)
+    args = parser.parse_args()
+
+if __name__ == "__main__":
+    main()
+
