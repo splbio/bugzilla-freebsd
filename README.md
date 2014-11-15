@@ -5,6 +5,12 @@ bugzilla client for freebsd repos.
 
 I use this after submitting an phabricator request.
 
+to install run "setup.sh"
+
+Workflow is basically submitting a patch to phabricator using git and then using this tool to open a corresponding PR.
+
+Please be careful to make sure that the '--name' argument actually matches the port's category and directory EXACTLY otherwise it will not work.
+
 Workflow looks like:
 
 ```
