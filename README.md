@@ -11,6 +11,8 @@ Workflow is basically submitting a patch to phabricator using git and then using
 
 Please be careful to make sure that the '--name' argument actually matches the port's category and directory EXACTLY otherwise it will not work.
 
+Warning... FreeBSD's SSL is broken: https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=189811 so we have nuetered ssl in this program until the issue is resolved.
+
 Workflow looks like:
 
 ```
