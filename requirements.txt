@@ -1,0 +1,2 @@
+python-bugzilla
+requests
