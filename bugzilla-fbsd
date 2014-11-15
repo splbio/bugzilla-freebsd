@@ -12,7 +12,14 @@ BUGZILLA_CMD=["/usr/local/bin/bugzilla", "--bugzilla", "https://bugs.freebsd.org
 # XXX: What is up with --nosslverify?
 BUGZILLA_CMD.append("--nosslverify")
 
-NEW_PORT_OPTS = ["-p", "Ports Tree", "-v", "Latest", "-c", "Individual Port(s)" ] 
+"""
+/usr/local/bin/bugzilla --bugzilla \
+	  https://bugs.freebsd.org/bugzilla/xmlrpc.cgi --nosslverify attach \
+	    --file "$PORTFILE" --desc "a fix" "$BUG_ID"
+
+
+
+"""
 
 def new_port():
     parser = argparse.ArgumentParser(description='Process some integers.')
@@ -32,6 +39,7 @@ def new_port():
 	print "Got non 200 status code from %s: code: %d" % (faburl, r.status_code)
 	sys.exit(1)
 
+    NEW_PORT_OPTS = ["new", "-p", "Ports Tree", "-v", "Latest", "-c", "Individual Port(s)" ] 
     ADD_OPTS= [
 	    "-s", "new port: %s" % args.name,
 	    "-l", "new port for %s is available in phabricator at %s" % (args.name, faburl),
@@ -39,7 +47,7 @@ def new_port():
 	    ]
     # --online <- gives back bugid for further processing...
     print BUGZILLA_CMD + ADD_OPTS
-    check_call(BUGZILLA_CMD + ADD_OPTS)
+    check_call(BUGZILLA_CMD + NEW_PORT_OPTS + ADD_OPTS)
 
 PROGNAME="bugzilla-fbsd"
 if len(sys.argv) < 2:
