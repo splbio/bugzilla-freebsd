@@ -17,8 +17,6 @@ DRY_RUN=False
 
 
 BUGZILLA_CMD=["/usr/local/bin/bugzilla", "--bugzilla", "https://bugs.freebsd.org/bugzilla/xmlrpc.cgi" ]
-# XXX: What is up with --nosslverify?
-BUGZILLA_CMD.append("--nosslverify")
 
 """
 /usr/local/bin/bugzilla --bugzilla \
@@ -153,6 +151,10 @@ def init_main_args(args):
 	global DRY_RUN
 	DRY_RUN = True
 
+    if args.nosslverify:
+	global BUGZILLA_CMD
+	BUGZILLA_CMD.append("--nosslverify")
+
     logger.debug("init_main_args done...")
 
 
@@ -203,7 +205,7 @@ def main():
     PROGNAME="bugzilla-fbsd"
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', action='store_true', help='output more of what is going on.')
-    parser.add_argument('--no-ssl', action='store_true', help='turn off ssl checking, FreeBSD.org has broken ssl.')
+    parser.add_argument('--nosslverify', action='store_true', help='turn off ssl checking, FreeBSD.org has broken ssl.')
     parser.add_argument('--dry-run', '-n', action='store_true', help='Dry run, do not upload anything to bugzilla.')
 
     subparsers = parser.add_subparsers()
