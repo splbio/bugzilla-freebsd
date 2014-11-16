@@ -186,7 +186,8 @@ def bz_newport(args):
     if DRY_RUN:
 	bugid = "1000"
     else:
-	bugid = output.split()[0]
+	bugid = re.sub(r'^#+', '', output.split()[0])
+
     if fabid:
 	upload_shar_from_fabid(fabid = args.fabid, port_path = args.name, bugid = bugid)
     else:
