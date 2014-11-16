@@ -3,10 +3,17 @@
 import subprocess
 import sys
 import requests
-from subprocess import check_call, check_output
 import argparse
 import re
 import os
+
+
+import logging
+import logging.handlers
+
+logger = logging.getLogger(__name__)
+
+DRY_RUN=False
 
 
 BUGZILLA_CMD=["/usr/local/bin/bugzilla", "--bugzilla", "https://bugs.freebsd.org/bugzilla/xmlrpc.cgi" ]
@@ -24,9 +31,9 @@ BUGZILLA_CMD.append("--nosslverify")
 
 import tempfile
 import shutil
-def unload_shar_from_patchfile(patchfilenam, portpath, bugid, patch_strip_count):
+def upload_shar_from_patchfile(patch_file_name, port_path, bugid, patch_strip_count):
 
-    (portdir, portname) = portpath.split('/')
+    (portdir, portname) = port_path.split('/')
     tmpdir = None
 
     if patch_strip_count is None:
@@ -37,13 +44,14 @@ def unload_shar_from_patchfile(patchfilenam, portpath, bugid, patch_strip_count)
 	"""
 	has_git_diff = False
 	has_git_leading_ab = False
-	pfile = open(patchfilenam, "r")
+	pfile = open(patch_file_name, "r")
 	for line in pfile:
-	    if re.match("^diff --git ", line):
+	    if not has_git_diff and re.match("^diff --git ", line):
 		has_git_diff = True
-	    if re.match("^+++ b/", line):
-		has_git_leading_ab = False
+	    if not has_git_leading_ab and re.match("^\+\+\+ b\/", line):
+		has_git_leading_ab = True 
 	if has_git_diff and has_git_leading_ab:
+	    logger.info("looks like a git style patch, using -p1 to patch program.")
 	    patch_strip_count = 1
 	else:
 	    patch_strip_count = 0
@@ -52,8 +60,8 @@ def unload_shar_from_patchfile(patchfilenam, portpath, bugid, patch_strip_count)
 	tmpdir = tempfile.mkdtemp()
 	portsdir = tmpdir + '/ports'
 	os.mkdir(portsdir)
-	args = [ "patch", "-d", portsdir, "-p%d" % patch_strip_count, "-i", patchnam ]
-	check_call(args)
+	args = [ "patch", "-d", portsdir, "-p%d" % patch_strip_count, "-i", patch_file_name ]
+	check_call(args, run_during_dry_run=True)
 	#shar `find oneko` > oneko.shar
 	sharoutput = tmpdir + '/' + portname + '.shar'
 	cmd = "cd '%s' && shar `find '%s'` > '%s'" % (
@@ -61,7 +69,7 @@ def unload_shar_from_patchfile(patchfilenam, portpath, bugid, patch_strip_count)
 	    portname,
 	    sharoutput)
 	print "Executing: %s" % (cmd)
-	check_call(cmd, shell=True)
+	check_call(cmd, shell=True, run_during_dry_run=True)
 	print sharoutput
 	ADD_FILE_OPTS = [
 		"attach",
@@ -71,10 +79,10 @@ def unload_shar_from_patchfile(patchfilenam, portpath, bugid, patch_strip_count)
 		]
 	check_call(BUGZILLA_CMD + ADD_FILE_OPTS)
     finally:
-	if tmpdir is not None:
+	if tmpdir is not None and not DRY_RUN:
 	    shutil.rmtree(tmpdir)
 
-def upload_shar_from_fabid(fabid, portpath, bugid):
+def upload_shar_from_fabid(fabid, port_path, bugid):
     patchnam = None
     r = requests.get('https://reviews.freebsd.org/' + fabid + '?download=true')
     (patchfd, patchnam) = tempfile.mkstemp()
@@ -84,11 +92,14 @@ def upload_shar_from_fabid(fabid, portpath, bugid):
 	patchfilehandle.write(r.text)
 	patchfilehandle.flush()
 
-	unload_shar_from_patchfile(patchfilename = patchnam,  portpath=portpath, bugid=bugid)
+	upload_shar_from_patchfile(patch_file_name = patchnam,  port_path=port_path, bugid=bugid)
 
     finally:
 	if patchnam is not None:
 	    os.remove(patchnam)
+
+def get_faburl(fabid):
+    return "https://reviews.freebsd.org/" + fabid
 
 """
 Do sanity checking on a fabricator id, including an http request to see if it exists.
@@ -99,45 +110,101 @@ def check_fabid(fabid):
 	print "option --fabid %s doesn't match expected regex /^D[0-9]+/"
 	sys.exit(1)
 
-    faburl = "https://reviews.freebsd.org/" + fabid
+    faburl = get_faburl(fabid)
     print "Making sure fabric request exists..."
     r = requests.get(faburl)
     if r.status_code != 200:
 	print "Got non 200 status code from %s: code: %d" % (faburl, r.status_code)
 	sys.exit(1)
 
+def check_call(arg, **kwargs):
+    logger.debug("Running: %s %s" % (arg, kwargs))
+    dry_run = DRY_RUN
+    if kwargs.get("run_during_dry_run", False):
+	del kwargs["run_during_dry_run"]
+	dry_run = False
+
+    if not dry_run:
+	subprocess.check_call(arg, **kwargs)
+
+def check_output(arg, **kwargs):
+    logger.debug("Running: %s %s" % (arg, kwargs))
+    if not DRY_RUN:
+	return subprocess.check_output(arg, **kwargs)
+    else:
+	return ""
+
+def init_main_args(args):
+    LOGFILE=None #args.logfile
+
+    logger = logging.getLogger(__name__)
+    if __name__ == "__main__":
+	logging_args = {}
+	logging.basicConfig(**logging_args)
+	if LOGFILE:
+	    logging_args["filename"] = LOGFILE
+	    logger.addHandler(logging.handlers.WatchedFileHandler(LOGFILE))
+	if args.verbose:
+	    logger.setLevel(logging.DEBUG)
+	else:
+	    logger.setLevel(logging.INFO)
+
+    if args.dry_run:
+	global DRY_RUN
+	DRY_RUN = True
+
+    logger.debug("init_main_args done...")
+
+
 """
 Create a new bugzilla for a port based on either a patchfile or a phabric id.
 """
 def bz_newport(args):
+    logger.debug("enter bz_newport...")
+    init_main_args(args)
+    """
+    print "args: %s" % args
+    print "DRY_RUN: %s" % DRY_RUN
+    """
+    fabid = None
     if args.fabid:
 	fabid = args.fabid
 	check_fabid(fabid)
 
     NEW_PORT_OPTS = ["new", "-p", "Ports Tree", "-v", "Latest", "-c", "Individual Port(s)" ] 
+    port_long_desc = "new port for %s is available"
+    if fabid:
+	port_long_desc += "in phabricator at %s" % (args.name, get_faburl(fabid))
     ADD_OPTS= [
 	    "-s", "new port: %s" % args.name,
-	    "-l", "new port for %s is available in phabricator at %s" % (args.name, faburl),
-	    "--url", faburl,
 	    "--oneline",
+	     "-l", port_long_desc
 	    ]
-    # --online <- gives back bugid for further processing...
-    print BUGZILLA_CMD + ADD_OPTS
-    output = check_output(BUGZILLA_CMD + NEW_PORT_OPTS + ADD_OPTS)
-    bugid = output.split()[0]
     if fabid:
-	upload_shar_from_fabid(fabid = args.fabid, portpath = args.name, bugid = bugid)
+	ADD_OPTS.extend("--url", get_faburl(fabid))
+    output = check_output(BUGZILLA_CMD + NEW_PORT_OPTS + ADD_OPTS)
+    if DRY_RUN:
+	bugid = "1000"
     else:
-	unload_shar_from_patchfile(patchfilename = args.patchfile, portpath = args.name, bugid = bugid, patch_strip_count = args.patch_strip_count)
+	bugid = output.split()[0]
+    if fabid:
+	upload_shar_from_fabid(fabid = args.fabid, port_path = args.name, bugid = bugid)
+    else:
+	upload_shar_from_patchfile(patch_file_name = args.patchfile, port_path = args.name, bugid = bugid, patch_strip_count = args.patch_strip_count)
 
-    print "New bug created at: https://bugs.freebsd.org/%d" % (bugid)
+    print "New bug created at: https://bugs.freebsd.org/%s" % (bugid)
 
 def bz_login(args):
+    init_main_args(args)
     check_call(BUGZILLA_CMD + [ "login" ])
 
 def main():
     PROGNAME="bugzilla-fbsd"
     parser = argparse.ArgumentParser()
+    parser.add_argument('--verbose', action='store_true', help='output more of what is going on.')
+    parser.add_argument('--no-ssl', action='store_true', help='turn off ssl checking, FreeBSD.org has broken ssl.')
+    parser.add_argument('--dry-run', '-n', action='store_true', help='Dry run, do not upload anything to bugzilla.')
+
     subparsers = parser.add_subparsers()
     """Login takes no args, just a verb."""
     parser_login = subparsers.add_parser('login')
@@ -152,6 +219,9 @@ def main():
     group.add_argument('--patchfile', default=None, help='path to patchfile')
     parser_newport.set_defaults(func=bz_newport)
     args = parser.parse_args()
+    args.func(args)
+    print "done..."
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
